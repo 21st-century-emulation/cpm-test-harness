@@ -22,7 +22,7 @@ services:
       - cpm-test-harness-network
 
   memory-bus:
-    image: memory-bus-8080:latest
+    image: ghcr.io/21st-century-emulation/memory-bus-8080:latest
     ports:
       - "8000:8080"
     restart: always
@@ -30,7 +30,7 @@ services:
       - cpm-test-harness-network
 
   emulator-backend-8080:
-    image: emulator-backend-8080:latest
+    image: ghcr.io/21st-century-emulation/emulator-backend-8080:latest
     depends_on:
       - "memory-bus"
     restart: always
@@ -436,7 +436,7 @@ services:
     networks:
       - cpm-test-harness-network
   ret:
-    image: ret:latest
+    image: ghcr.io/21st-century-emulation/ret:latest
     ports:
       - "8080"
     environment:
