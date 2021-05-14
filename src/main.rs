@@ -5,8 +5,7 @@ extern crate rocket;
 extern crate rocket_multipart_form_data;
 extern crate serde;
 
-use postgres::Client;
-use postgres::NoTls;
+use rocket::State;
 use rocket::http::ContentType;
 use rocket::Data;
 use rocket_contrib::json::Json;
@@ -14,10 +13,15 @@ use rocket_multipart_form_data::{
     MultipartFormData, MultipartFormDataField, MultipartFormDataOptions,
 };
 use serde::{Deserialize, Serialize};
-use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
 use uuid::Uuid;
+
+#[derive(Deserialize, Serialize)]
+struct Rom {
+    id: String,
+    #[serde(rename = "programState")] program_state: String
+}
 
 #[derive(Deserialize, Serialize)]
 struct CpuFlags {
@@ -55,6 +59,12 @@ struct Cpu {
     opcode: u8,
 }
 
+struct Config {
+    read_range_api: String,
+    initialise_data_api: String,
+    start_program_api: String,
+}
+
 #[post("/initialise", format = "json", data = "<cpu>")]
 fn initialise(mut cpu: Json<Cpu>) -> Option<Json<Cpu>> {
     cpu.state.program_counter = 0x100;
@@ -74,9 +84,8 @@ fn in_api(operand1: Option<u8>, mut cpu: Json<Cpu>) -> Option<Json<Cpu>> {
 }
 
 #[post("/out?<operand1>", format = "json", data = "<cpu>")]
-fn out_api(operand1: Option<u8>, mut cpu: Json<Cpu>) -> Option<Json<Cpu>> {
+fn out_api(operand1: Option<u8>, mut cpu: Json<Cpu>, config: State<Config>) -> Option<Json<Cpu>> {
     let port = operand1.unwrap();
-    println!("OUT called with port {} and c = {}", port, cpu.state.c);
 
     if port == 0 {
         // Only accept OUT on port 0 as this is a hack to handle BIOS functions
@@ -93,23 +102,24 @@ fn out_api(operand1: Option<u8>, mut cpu: Json<Cpu>) -> Option<Json<Cpu>> {
             println!("{}", std::str::from_utf8(&vec![cpu.state.e]).unwrap());
         } else if operation == 0x9 {
             // C_WRITESTR - Write string
-            let connection_string = match std::env::var("Database__ConnectionString") {
-                Ok(url) => url,
-                Err(_) => panic!("Couldn't read Database__ConnectionString environment variable"),
-            };
             let address = ((cpu.state.d as u16) << 8) | cpu.state.e as u16;
-            println!("C_WRITESTR {}", address);
-            let mut client = Client::connect(&connection_string, NoTls).unwrap();
-            let rows = client.query(
-                "SELECT value FROM public.address_space WHERE computer_id=$1 AND address >= $2 AND address < (SELECT address FROM public.address_space WHERE computer_id = $1 AND value = 36 AND address > $2 LIMIT 1)", 
-                &[&Uuid::parse_str(&cpu.id).unwrap(), &(address as i32)]).unwrap();
-            let ascii_values = rows
-                .iter()
-                .map(|row| row.get::<usize, i16>(0))
-                .map(|i| i.try_into().unwrap())
-                .collect::<Vec<u8>>();
-
-            println!("{}", std::str::from_utf8(&ascii_values).unwrap());
+            let mut constructed_string = Vec::<u8>::new();
+            println!("\nC_WRITESTR {}", address);
+            let client = reqwest::blocking::Client::new();
+            let str_response = client
+                .get(format!("{}?id={}&address={}&length={}", config.read_range_api, cpu.id, address, 0xFFFF - address))
+                .send()
+                .unwrap();
+            if str_response.status() != reqwest::StatusCode::OK {
+                panic!("Invalid response from read memory api {}: {}", str_response.status(), str_response.text().unwrap());
+            }
+            
+            for b in base64::decode(str_response.text().unwrap()).unwrap() {
+                if b == 36 { break; }
+                constructed_string.push(b);
+            }
+            
+            println!("{}", std::str::from_utf8(&constructed_string).unwrap());
         } else {
             panic!("Unknown bios function called");
         }
@@ -124,9 +134,9 @@ fn status() -> &'static str {
 }
 
 #[post("/load", data = "<rom>")]
-fn load_data(content_type: &ContentType, rom: Data) -> String {
+fn load_data(content_type: &ContentType, rom: Data, config: State<Config>) -> String {
     let options = MultipartFormDataOptions::with_multipart_form_data_fields(vec![
-        MultipartFormDataField::file("rom").size_limit(1024),
+        MultipartFormDataField::file("rom").size_limit(100000),
     ]);
 
     let multipart_form_data = MultipartFormData::parse(content_type, rom, options).unwrap();
@@ -134,44 +144,64 @@ fn load_data(content_type: &ContentType, rom: Data) -> String {
     let mut file = File::open(&rom_data.path).unwrap();
     let mut rom_data: Vec<u8> = vec![];
     file.read_to_end(&mut rom_data).unwrap();
-    rom_data.resize(0x10000 - 0x100, 0x0); // Can have at most 0xFFFF bytes in address space but need the first 0xFF for bios
-    print!("{:?}", rom_data);
+    rom_data.resize(0x10000 - 0x100, 0x0); // Must have exactly 0xFFFF bytes in address space but need the first 0xFF for bios
 
-    let connection_string = match std::env::var("Database__ConnectionString") {
-        Ok(url) => url,
-        Err(_) => panic!("Couldn't read Database__ConnectionString environment variable"),
+    let computer_id = Uuid::new_v4();
+
+    let mut program_data = vec![0x76; 0x100]; // Fill BIOS with HLT instruction
+    program_data[5] = 0xD3; // Set bios operation at 0x05 as OUT 0 to use test harness
+    program_data[6] = 0x00;
+    program_data[7] = 0x00;
+    program_data[8] = 0xC9;
+    program_data.extend(rom_data);
+
+    let rom = Rom {
+        id: computer_id.to_string(),
+        program_state: base64::encode(program_data)
     };
-    let mut client = Client::connect(&connection_string, NoTls).unwrap();
-    let mut tran = client.build_transaction().start().unwrap();
-    let row = tran
-        .query_one(
-            "INSERT INTO public.computer (id, state) VALUES ($1, '{}') RETURNING id",
-            &[&Uuid::new_v4()],
-        )
-        .unwrap();
-    let computer_id: Uuid = row.get(0);
 
-    let mut bios = vec![0x76; 0x100]; // Fill BIOS with HLT instruction
-    bios[5] = 0xD3; // Set bios operation at 0x05 as OUT 0 to use test harness
-    bios[6] = 0x00;
-    bios[7] = 0x00;
-    bios[8] = 0xC9;
-
-    for (ix, byte) in bios.iter().chain(rom_data.iter()).enumerate() {
-        tran.execute(
-            "INSERT INTO public.address_space (computer_id, address, value) VALUES ($1, $2, $3)",
-            &[&computer_id, &(ix as i32), &(*byte as i16)],
-        )
+    // Initialise the address space with the constructed program data
+    let client = reqwest::blocking::Client::new();
+    let init_response = client
+        .post(format!("{}", config.initialise_data_api))
+        .json(&rom)
+        .send()
         .unwrap();
+    if init_response.status() != reqwest::StatusCode::OK {
+        panic!("Could not initialise memory");
     }
 
-    tran.commit().unwrap();
+    // Fire and forget the program start
+    let start_response = client
+        .post(format!("{}?id={}", config.start_program_api, rom.id))
+        .body("")
+        .send()
+        .unwrap();
+    if start_response.status() != reqwest::StatusCode::OK {
+        panic!("Could not start program");
+    }
 
     computer_id.to_hyphenated().to_string()
 }
 
-fn main() {
+fn rocket() -> rocket::Rocket {
+    let config = Config {
+        read_range_api: match std::env::var("READ_RANGE_API") {
+            Ok(url) => url,
+            Err(_) => panic!("Couldn't read READ_RANGE_API environment variable"),
+        },
+        initialise_data_api: match std::env::var("INITIALISE_DATA_API") {
+            Ok(url) => url,
+            Err(_) => panic!("Couldn't read INITIALISE_DATA_API environment variable"),
+        },
+        start_program_api: match std::env::var("START_PROGRAM_API") {
+            Ok(url) => url,
+            Err(_) => panic!("Couldn't read START_PROGRAM_API environment variable"),
+        }
+    };
+
     rocket::ignite()
+        .mount("/", routes![status])
         .mount(
             "/api/v1",
             routes![
@@ -183,5 +213,9 @@ fn main() {
                 interrupt_check
             ],
         )
-        .launch();
+        .manage(config)
+}
+
+fn main() {
+    rocket().launch();
 }

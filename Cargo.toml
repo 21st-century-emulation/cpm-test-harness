@@ -3,9 +3,11 @@ name = "cpm-test-harness"
 version = "0.1.0"
 authors = ["David Tyler <davet.code@gmail.com>"]
 edition = "2018"
+publish = false
 
 [dependencies]
-postgres = { version = "0.19.1", features = ["with-uuid-0_8"] }
+base64 = "0.13.0"
+reqwest = { version = "0.11", features = ["blocking", "json"] }
 rocket = "0.4.7"
 rocket-multipart-form-data = "0.9.6"
 serde = { version = "1.0.125", features = ["derive"] }

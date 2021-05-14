@@ -4,60 +4,43 @@ networks:
   cpm-test-harness-network:
         
 services:
-  loki-logs:
-    image: grafana/loki:2.2.1
-    ports:
-      - "3100"
-    command: -config.file=/etc/loki/local-config.yaml
-    networks:
-      - cpm-test-harness-network
-
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3000:3000"
-    networks:
-      - cpm-test-harness-network
-
   cpm-test-harness:
     image: cpm-test-harness:latest
     depends_on:
       - "emulator-backend-8080"
+      - "memory-bus"
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"     
+      - "8080:8080"
     environment:
-      Database__ConnectionString: "host=postgres port=5432 dbname=cpu user=cpuuser password=password"
+      READ_RANGE_API: http://memory-bus.:8080/api/v1/readRange
+      INITIALISE_DATA_API: http://memory-bus.:8080/api/v1/initialise
+      START_PROGRAM_API: http://emulator-backend-8080.:8080/api/v1/start
     networks:
       - cpm-test-harness-network
-  
-  postgres:
-    image: postgres:12
+
+  memory-bus:
+    image: memory-bus-8080:latest
     ports:
-      - "5432:5432"
+      - "8000:8080"
     restart: always
-    environment:
-      POSTGRES_USER: "cpuuser"
-      POSTGRES_PASSWORD: "password"
-      POSTGRES_DB: "cpu"
     networks:
       - cpm-test-harness-network
 
   emulator-backend-8080:
     image: emulator-backend-8080:latest
     depends_on:
-      - "postgres"
-      - "loki-logs"
+      - "memory-bus"
     restart: always
     networks:
       - cpm-test-harness-network
+    ports:
+      - "8080"
     environment:
-      Database__ConnectionString: "host=postgres;port=5432;database=cpu;username=cpuuser;password=password"
-      LOKI_URL: http://loki-logs:3100
-      INTERRUPT_SERVICE_URL: http://cpm-test-harness.:8080/api/v1/interruptCheck
       INITIALISE_CPU_SERVICE: http://cpm-test-harness.:8080/api/v1/initialise
+      READ_RANGE_API: http://memory-bus.:8080/api/v1/readRange
       ACI: http://aci.:8080/api/v1/execute
       ADC: http://adc.:8080/api/v1/execute
       ADD: http://add.:8080/api/v1/execute
@@ -70,7 +53,7 @@ services:
       CMP: http://cmp.:8080/api/v1/execute
       CPI: http://cpi.:8080/api/v1/execute
       DAA: http://daa.:8080/api/v1/execute
-      DAD: http://dad.:8080/api/v1/execute
+      DAD: http://dad.:80/api/v1/execute
       DCR: http://dcr.:8080/api/v1/execute
       DCX: http://dcx.:8080/api/v1/execute
       DI: http://di.:8080/api/v1/execute
@@ -112,39 +95,13 @@ services:
       XRI: http://xri.:8080/api/v1/execute
       XTHL: http://xthl.:8080/api/v1/execute
 
-  write-memory-api:
-    image: ghcr.io/21st-century-emulation/write-byte:latest
-    ports:
-      - "8080"
-    depends_on:
-      - "postgres"
-    environment:
-      Database__ConnectionString: "host=postgres;port=5432;database=cpu;username=cpuuser;password=password"
-      LOKI_URL: http://loki-logs:3100
-    restart: always
-    networks:
-      - cpm-test-harness-network
-  
-  read-memory-api:
-    image: ghcr.io/21st-century-emulation/read-byte:latest
-    ports:
-      - "8080"
-    depends_on:
-      - "postgres"
-    environment:
-      Database__ConnectionString: "host=postgres;port=5432;database=cpu;username=cpuuser;password=password"
-      LOKI_URL: http://loki-logs:3100
-    restart: always
-    networks:
-      - cpm-test-harness-network
-
   aci:
     image: ghcr.io/21st-century-emulation/aci:latest
     ports: 
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -153,8 +110,8 @@ services:
     ports: 
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -163,8 +120,8 @@ services:
     ports: 
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -173,8 +130,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -183,8 +140,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -193,8 +150,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -203,8 +160,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -213,8 +170,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -223,8 +180,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -233,8 +190,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -243,8 +200,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -253,18 +210,18 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
   dad:
     image: ghcr.io/21st-century-emulation/dad:latest
     ports:
-      - "8080"
+      - "80"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -273,8 +230,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -283,8 +240,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -293,8 +250,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -303,18 +260,18 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
   inr:
     image: ghcr.io/21st-century-emulation/inr:latest
     ports:
-      - "8080"
+      - "8001:8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -323,8 +280,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -333,8 +290,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -343,8 +300,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -353,8 +310,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -363,8 +320,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -373,8 +330,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -383,8 +340,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -393,8 +350,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -403,8 +360,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -413,8 +370,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -423,8 +380,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -433,8 +390,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -443,8 +400,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -453,8 +410,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -463,8 +420,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -473,18 +430,18 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
   ret:
-    image: ghcr.io/21st-century-emulation/ret:latest
+    image: ret:latest
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -493,8 +450,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -503,8 +460,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -513,8 +470,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -523,8 +480,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -533,8 +490,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -543,8 +500,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -553,8 +510,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -563,8 +520,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -573,8 +530,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -583,8 +540,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -593,8 +550,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -603,8 +560,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -613,8 +570,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -623,8 +580,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -633,8 +590,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
@@ -643,8 +600,8 @@ services:
     ports:
       - "8080"
     environment:
-      WRITE_MEMORY_API: http://write-memory-api:8080/api/v1/writeByte
-      READ_MEMORY_API: http://read-memory-api:8080/api/v1/readByte
+      WRITE_MEMORY_API: http://memory-bus.:8080/api/v1/writeByte
+      READ_MEMORY_API: http://memory-bus.:8080/api/v1/readByte
     restart: always
     networks:
       - cpm-test-harness-network
